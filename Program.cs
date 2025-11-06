@@ -5,6 +5,7 @@ using System.Windows.Forms;
 using System.Drawing;
 using Microsoft.Win32;
 using System.Management;
+using nobright.Properties;
 
 namespace nobright
 {
@@ -485,3 +486,4 @@ namespace BrightnessToggle.Properties
     }
 
 }
+
