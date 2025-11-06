@@ -11,3 +11,6 @@ windows application to change monitor brightness with one programable key
 
 
 to execute need .net 9 runtime desktop https://dotnet.microsoft.com/es-es/download/dotnet/9.0
+
+
+*made it with Claude AI
