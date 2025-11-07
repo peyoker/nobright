@@ -6,7 +6,7 @@
 
 ---
 
-<!-- ![NoBright Screenshot]((https://i.imgur.com/CXl0KNql.png)) -->
+<!-- ![NoBright Screenshot](https://i.imgur.com/CXl0KNql.png) -->
 
 ---
 
