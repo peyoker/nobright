@@ -144,5 +144,3 @@ Built for those who value their eyes and their sleep. Perfect for:
 *   Anyone who wants instant, reliable brightness control
 
 ---
-
-**Made it with Claude**
