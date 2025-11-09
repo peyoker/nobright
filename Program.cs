@@ -5,13 +5,100 @@ using System.Windows.Forms;
 using System.Drawing;
 using Microsoft.Win32;
 using System.Management;
-using System.Diagnostics;
-using System.Globalization;
-using System.Resources;
+using System.Threading.Tasks;
 
 namespace NoBright
 {
-    // Gestor de instancia única
+    // Ventana overlay oscura con opacidad ajustable
+    public class DarkOverlay : Form
+    {
+        [DllImport("user32.dll")]
+        static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
+        static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+        const uint SWP_NOACTIVATE = 0x0010;
+        const uint SWP_SHOWWINDOW = 0x0040;
+
+        public DarkOverlay()
+        {
+            this.FormBorderStyle = FormBorderStyle.None;
+            this.WindowState = FormWindowState.Maximized;
+            this.BackColor = Color.Black;
+            this.Opacity = 0.0;
+            this.ShowInTaskbar = false;
+            this.TopMost = true;
+            
+            int initialStyle = GetWindowLong(this.Handle, -20);
+            SetWindowLong(this.Handle, -20, initialStyle | 0x80000 | 0x20);
+            
+            Rectangle bounds = Screen.AllScreens[0].Bounds;
+            foreach (Screen screen in Screen.AllScreens)
+            {
+                bounds = Rectangle.Union(bounds, screen.Bounds);
+            }
+            this.Bounds = bounds;
+        }
+
+        [DllImport("user32.dll")]
+        static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+
+        [DllImport("user32.dll")]
+        static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+
+        public void SetOpacitySafe(double opacity)
+        {
+            if (this.InvokeRequired)
+            {
+                this.Invoke(new Action(() => this.Opacity = opacity));
+            }
+            else
+            {
+                this.Opacity = opacity;
+            }
+        }
+
+        public void ShowSafe()
+        {
+            if (this.InvokeRequired)
+            {
+                this.Invoke(new Action(() => this.Show()));
+            }
+            else
+            {
+                this.Show();
+            }
+        }
+
+        public void HideSafe()
+        {
+            if (this.InvokeRequired)
+            {
+                this.Invoke(new Action(() => this.Hide()));
+            }
+            else
+            {
+                this.Hide();
+            }
+        }
+
+        protected override void OnShown(EventArgs e)
+        {
+            base.OnShown(e);
+            SetWindowPos(this.Handle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        }
+
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                CreateParams cp = base.CreateParams;
+                cp.ExStyle |= 0x80000;
+                cp.ExStyle |= 0x20;
+                return cp;
+            }
+        }
+    }
+
     public static class SingleInstance
     {
         private static Mutex mutex = null;
@@ -24,7 +111,6 @@ namespace NoBright
         }
     }
 
-    // Formulario principal de configuración
     public class ConfigForm : Form
     {
         private ComboBox cmbKey;
@@ -39,14 +125,14 @@ namespace NoBright
         private Label lblLanguage;
         private Label lblStatus;
         private Label lblVersion;
+        private Label lblInfo;
         private TextBox txtLog;
         private TrackBar trackBrightness;
         private Label lblBrightness;
         private Label lblTheme;
 
-        private const string VERSION = "1.0.0";
+        private const string VERSION = "1.1.0";
 
-        // Textos en diferentes idiomas
         private string[] texts_en = new string[] {
             "NoBright - Settings",
             "Activation key:",
@@ -63,19 +149,23 @@ namespace NoBright
             "Current brightness:",
             "Testing brightness toggle...",
             "Brightness state:",
-            "MINIMUM",
+            "DARK",
             "NORMAL",
             "Settings saved:",
             "✓ Saved",
             "Window minimized to tray",
-            "Brightness reduced to minimum (saved:",
-            "Brightness restored to",
+            "Screen darkened",
+            "Screen restored to normal",
             "Error adjusting brightness:",
             "Brightness manually adjusted:",
             "Automatic startup enabled",
             "Automatic startup disabled",
             "Error configuring startup:",
-            "WARNING: Cannot control brightness on this device"
+            "WARNING: Cannot control brightness on this device",
+            "Auto mode: Uses overlay on lock screen, brightness control when unlocked",
+            "Lock screen detected - switching to overlay mode",
+            "Session unlocked - switching to brightness mode",
+            "Smooth transition completed"
         };
 
         private string[] texts_es = new string[] {
@@ -94,26 +184,29 @@ namespace NoBright
             "Brillo actual:",
             "Probando toggle de brillo...",
             "Estado del brillo:",
-            "MÍNIMO",
+            "OSCURO",
             "NORMAL",
             "Configuración guardada:",
             "✓ Guardado",
             "Ventana minimizada a la bandeja",
-            "Brillo reducido al mínimo (guardado:",
-            "Brillo restaurado a",
+            "Pantalla oscurecida",
+            "Pantalla restaurada a normal",
             "Error ajustando brillo:",
             "Brillo ajustado manualmente:",
             "Inicio automático activado",
             "Inicio automático desactivado",
             "Error configurando inicio:",
-            "ADVERTENCIA: No se puede controlar el brillo en este equipo"
+            "ADVERTENCIA: No se puede controlar el brillo en este equipo",
+            "Modo auto: Usa overlay en pantalla bloqueada, control de brillo al desbloquear",
+            "Pantalla bloqueada detectada - cambiando a modo overlay",
+            "Sesión desbloqueada - cambiando a modo brillo",
+            "Transición suave completada"
         };
 
         public string[] currentTexts;
 
         public ConfigForm()
         {
-            // Cargar idioma
             int lang = Properties.Settings.Default.Language;
             currentTexts = lang == 0 ? texts_en : texts_es;
             
@@ -121,25 +214,24 @@ namespace NoBright
             LoadSettings();
             ApplyTheme(Properties.Settings.Default.DarkMode);
             
-            LogMessage(currentTexts[11]); // "Application started successfully"
+            LogMessage(currentTexts[11]);
             
             if (Program.CanControlBrightness())
             {
                 int current = Program.GetCurrentBrightness();
-                LogMessage($"{currentTexts[12]} {current}%"); // "Current brightness: X%"
+                LogMessage($"{currentTexts[12]} {current}%");
                 trackBrightness.Value = current;
             }
             else
             {
-                LogMessage(currentTexts[27]); // "WARNING: Cannot control..."
-                btnTest.Enabled = false;
+                LogMessage(currentTexts[27]);
             }
         }
 
         private void InitializeComponent()
         {
-            this.Text = currentTexts[0]; // "NoBright - Settings"
-            this.Size = new Size(450, 550);
+            this.Text = currentTexts[0];
+            this.Size = new Size(450, 580);
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
             this.MaximizeBox = false;
             this.MinimizeBox = false;
@@ -147,9 +239,19 @@ namespace NoBright
 
             int yPos = 20;
 
+            // Info
+            lblInfo = new Label();
+            lblInfo.Text = currentTexts[28];
+            lblInfo.Location = new Point(20, yPos);
+            lblInfo.Size = new Size(400, 40);
+            lblInfo.ForeColor = Color.DarkBlue;
+            this.Controls.Add(lblInfo);
+
+            yPos += 50;
+
             // Idioma
             lblLanguage = new Label();
-            lblLanguage.Text = currentTexts[3]; // "Language:"
+            lblLanguage.Text = currentTexts[3];
             lblLanguage.Location = new Point(20, yPos);
             lblLanguage.Size = new Size(150, 20);
             this.Controls.Add(lblLanguage);
@@ -166,12 +268,11 @@ namespace NoBright
 
             // Label tecla
             lblKey = new Label();
-            lblKey.Text = currentTexts[1]; // "Activation key:"
+            lblKey.Text = currentTexts[1];
             lblKey.Location = new Point(20, yPos);
             lblKey.Size = new Size(400, 20);
             this.Controls.Add(lblKey);
 
-            // ComboBox teclas
             cmbKey = new ComboBox();
             cmbKey.DropDownStyle = ComboBoxStyle.DropDownList;
             cmbKey.Location = new Point(20, yPos + 25);
@@ -187,14 +288,12 @@ namespace NoBright
 
             yPos += 60;
 
-            // Label segundos
             lblSeconds = new Label();
-            lblSeconds.Text = currentTexts[2]; // "Hold duration..."
+            lblSeconds.Text = currentTexts[2];
             lblSeconds.Location = new Point(20, yPos);
             lblSeconds.Size = new Size(350, 20);
             this.Controls.Add(lblSeconds);
 
-            // NumericUpDown segundos
             nudSeconds = new NumericUpDown();
             nudSeconds.Location = new Point(20, yPos + 25);
             nudSeconds.Size = new Size(100, 25);
@@ -206,15 +305,14 @@ namespace NoBright
 
             yPos += 60;
 
-            // Tema
             lblTheme = new Label();
-            lblTheme.Text = currentTexts[4]; // "Theme:"
+            lblTheme.Text = currentTexts[4];
             lblTheme.Location = new Point(20, yPos);
             lblTheme.Size = new Size(150, 20);
             this.Controls.Add(lblTheme);
 
             chkDarkMode = new CheckBox();
-            chkDarkMode.Text = currentTexts[5]; // "Dark mode"
+            chkDarkMode.Text = currentTexts[5];
             chkDarkMode.Location = new Point(20, yPos + 25);
             chkDarkMode.Size = new Size(200, 20);
             chkDarkMode.CheckedChanged += ChkDarkMode_CheckedChanged;
@@ -222,9 +320,8 @@ namespace NoBright
 
             yPos += 55;
 
-            // Control manual de brillo
             Label lblManual = new Label();
-            lblManual.Text = currentTexts[6]; // "Manual brightness control:"
+            lblManual.Text = currentTexts[6];
             lblManual.Location = new Point(20, yPos);
             lblManual.Size = new Size(250, 20);
             this.Controls.Add(lblManual);
@@ -248,25 +345,23 @@ namespace NoBright
 
             yPos += 75;
 
-            // CheckBox inicio con Windows
             chkStartup = new CheckBox();
-            chkStartup.Text = currentTexts[7]; // "Start with Windows"
+            chkStartup.Text = currentTexts[7];
             chkStartup.Location = new Point(20, yPos);
             chkStartup.Size = new Size(200, 20);
             this.Controls.Add(chkStartup);
 
             yPos += 35;
 
-            // Botones
             btnTest = new Button();
-            btnTest.Text = currentTexts[8]; // "Test Toggle"
+            btnTest.Text = currentTexts[8];
             btnTest.Location = new Point(20, yPos);
             btnTest.Size = new Size(125, 30);
             btnTest.Click += BtnTest_Click;
             this.Controls.Add(btnTest);
 
             btnSave = new Button();
-            btnSave.Text = currentTexts[9]; // "Save"
+            btnSave.Text = currentTexts[9];
             btnSave.Location = new Point(160, yPos);
             btnSave.Size = new Size(125, 30);
             btnSave.Click += BtnSave_Click;
@@ -281,7 +376,6 @@ namespace NoBright
 
             yPos += 40;
 
-            // Versión
             lblVersion = new Label();
             lblVersion.Text = $"v{VERSION}";
             lblVersion.Location = new Point(370, yPos);
@@ -293,9 +387,8 @@ namespace NoBright
 
             yPos += 10;
 
-            // TextBox log
             Label lblLog = new Label();
-            lblLog.Text = currentTexts[10]; // "Event log:"
+            lblLog.Text = currentTexts[10];
             lblLog.Location = new Point(20, yPos);
             lblLog.Size = new Size(150, 20);
             this.Controls.Add(lblLog);
@@ -335,19 +428,19 @@ namespace NoBright
         {
             if (darkMode)
             {
-                // Tema oscuro
                 this.BackColor = Color.FromArgb(30, 30, 30);
                 this.ForeColor = Color.White;
                 txtLog.BackColor = Color.FromArgb(45, 45, 45);
                 txtLog.ForeColor = Color.White;
+                lblInfo.ForeColor = Color.LightBlue;
             }
             else
             {
-                // Tema claro
                 this.BackColor = SystemColors.Control;
                 this.ForeColor = SystemColors.ControlText;
                 txtLog.BackColor = Color.White;
                 txtLog.ForeColor = Color.Black;
+                lblInfo.ForeColor = Color.DarkBlue;
             }
         }
 
@@ -355,7 +448,7 @@ namespace NoBright
         {
             lblBrightness.Text = $"{trackBrightness.Value}%";
             Program.SetBrightness(trackBrightness.Value);
-            LogMessage($"{currentTexts[23]} {trackBrightness.Value}%"); // "Brightness manually adjusted: X%"
+            LogMessage($"{currentTexts[23]} {trackBrightness.Value}%");
         }
 
         public void LogMessage(string message)
@@ -375,7 +468,7 @@ namespace NoBright
             {
                 e.Cancel = true;
                 this.Hide();
-                LogMessage(currentTexts[19]); // "Window minimized to tray"
+                LogMessage(currentTexts[19]);
             }
         }
 
@@ -390,10 +483,10 @@ namespace NoBright
 
         private void BtnTest_Click(object sender, EventArgs e)
         {
-            LogMessage(currentTexts[13]); // "Testing brightness toggle..."
+            LogMessage(currentTexts[13]);
             Program.ToggleBrightness();
-            string state = Program.brightnessIsLow ? currentTexts[15] : currentTexts[16]; // "MINIMUM" : "NORMAL"
-            LogMessage($"{currentTexts[14]} {state}"); // "Brightness state: X"
+            string state = Program.brightnessIsLow ? currentTexts[15] : currentTexts[16];
+            LogMessage($"{currentTexts[14]} {state}");
             
             int current = Program.GetCurrentBrightness();
             if (trackBrightness.Value != current)
@@ -411,8 +504,8 @@ namespace NoBright
 
             SetStartup(chkStartup.Checked);
 
-            lblStatus.Text = currentTexts[18]; // "✓ Saved"
-            LogMessage($"{currentTexts[17]} {cmbKey.Text}, {nudSeconds.Value}s"); // "Settings saved: X, Ys"
+            lblStatus.Text = currentTexts[18];
+            LogMessage($"{currentTexts[17]} {cmbKey.Text}, {nudSeconds.Value}s");
             
             System.Windows.Forms.Timer timer = new System.Windows.Forms.Timer();
             timer.Interval = 2000;
@@ -438,17 +531,17 @@ namespace NoBright
                 if (enable)
                 {
                     key.SetValue("NoBright", "\"" + Application.ExecutablePath + "\"");
-                    LogMessage(currentTexts[24]); // "Automatic startup enabled"
+                    LogMessage(currentTexts[24]);
                 }
                 else
                 {
                     key.DeleteValue("NoBright", false);
-                    LogMessage(currentTexts[25]); // "Automatic startup disabled"
+                    LogMessage(currentTexts[25]);
                 }
             }
             catch (Exception ex)
             {
-                LogMessage($"{currentTexts[26]} {ex.Message}"); // "Error configuring startup: X"
+                LogMessage($"{currentTexts[26]} {ex.Message}");
             }
         }
     }
@@ -458,14 +551,34 @@ namespace NoBright
         [DllImport("user32.dll")]
         public static extern short GetAsyncKeyState(int vKey);
 
+        [DllImport("user32.dll")]
+        static extern IntPtr OpenDesktop(string lpszDesktop, uint dwFlags, bool fInherit, uint dwDesiredAccess);
+
+        [DllImport("user32.dll")]
+        static extern bool CloseDesktop(IntPtr hDesktop);
+
         public static bool brightnessIsLow = false;
         static int savedBrightness = 50;
         static NotifyIcon trayIcon;
         static ConfigForm configForm;
         static DateTime keyPressStart = DateTime.MinValue;
         static bool wasPressed = false;
+        static DarkOverlay overlay = null;
+        static bool wasLocked = false;
+        static bool isTransitioning = false;
 
         static int[] keyCodes = { 0xA2, 0xA3, 0xA4, 0xA5, 0xA0, 0xA1, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7A, 0x7B };
+
+        public static bool IsWorkstationLocked()
+        {
+            IntPtr hDesktop = OpenDesktop("Default", 0, false, 0x0100);
+            if (hDesktop == IntPtr.Zero)
+            {
+                return true; // Si no puede abrir el escritorio, probablemente está bloqueado
+            }
+            CloseDesktop(hDesktop);
+            return false;
+        }
 
         public static bool CanControlBrightness()
         {
@@ -506,33 +619,172 @@ namespace NoBright
                     break;
                 }
             }
-            catch (Exception ex)
-            {
-                configForm?.LogMessage($"Error: {ex.Message}");
-            }
+            catch { }
         }
 
-        public static void ToggleBrightness()
+        // Transición suave entre overlay y brillo
+        static async Task SmoothTransition(bool toOverlay)
         {
-            if (!brightnessIsLow)
+            if (isTransitioning) return;
+            isTransitioning = true;
+
+            const int steps = 20;
+            const int delayMs = 50; // Total: 1 segundo
+
+            if (toOverlay)
             {
-                savedBrightness = GetCurrentBrightness();
-                SetBrightness(0);
-                brightnessIsLow = true;
-                configForm?.LogMessage($"✓ Brightness reduced to minimum (saved: {savedBrightness}%)");
+                // Transición: Brillo → Overlay
+                int currentBrightness = GetCurrentBrightness();
+                
+                for (int i = 0; i <= steps; i++)
+                {
+                    double progress = (double)i / steps;
+                    
+                    // Reducir brillo gradualmente
+                    int newBrightness = (int)(currentBrightness * (1 - progress));
+                    SetBrightness(newBrightness);
+                    
+                    // Aumentar overlay gradualmente
+                    if (overlay != null && overlay.Visible)
+                    {
+                        overlay.SetOpacitySafe(0.95 * progress);
+                    }
+                    
+                    await Task.Delay(delayMs);
+                }
             }
             else
             {
-                SetBrightness(savedBrightness);
+                // Transición: Overlay → Brillo
+                for (int i = 0; i <= steps; i++)
+                {
+                    double progress = (double)i / steps;
+                    
+                    // Reducir overlay gradualmente
+                    if (overlay != null && overlay.Visible)
+                    {
+                        overlay.SetOpacitySafe(0.95 * (1 - progress));
+                    }
+                    
+                    // Aumentar brillo gradualmente
+                    int newBrightness = (int)(savedBrightness * progress);
+                    SetBrightness(newBrightness);
+                    
+                    await Task.Delay(delayMs);
+                }
+                
+                // Ocultar overlay al final
+                if (overlay != null)
+                {
+                    overlay.HideSafe();
+                }
+            }
+
+            isTransitioning = false;
+            configForm?.LogMessage(configForm.currentTexts[31]); // "Smooth transition completed"
+        }
+
+        public static async void ToggleBrightness()
+        {
+            bool isLocked = IsWorkstationLocked();
+
+            if (!brightnessIsLow)
+            {
+                // Activar modo oscuro
+                savedBrightness = GetCurrentBrightness();
+                
+                if (isLocked)
+                {
+                    // Pantalla bloqueada: usar overlay
+                    if (overlay == null)
+                    {
+                        overlay = new DarkOverlay();
+                    }
+                    overlay.SetOpacitySafe(0.0);
+                    overlay.ShowSafe();
+                    await SmoothTransition(true);
+                }
+                else
+                {
+                    // Pantalla desbloqueada: usar brillo WMI
+                    SetBrightness(0);
+                }
+                
+                brightnessIsLow = true;
+                configForm?.LogMessage($"✓ {configForm.currentTexts[20]}");
+            }
+            else
+            {
+                // Restaurar modo normal
+                if (isLocked && overlay != null && overlay.Visible)
+                {
+                    // Estaba en overlay, restaurar con transición
+                    await SmoothTransition(false);
+                }
+                else
+                {
+                    // Estaba en modo brillo, restaurar directamente
+                    SetBrightness(savedBrightness);
+                }
+                
                 brightnessIsLow = false;
-                configForm?.LogMessage($"✓ Brightness restored to {savedBrightness}%");
+                configForm?.LogMessage($"✓ {configForm.currentTexts[21]}");
+            }
+        }
+
+        // Monitor de cambio de estado de bloqueo
+        static async void MonitorLockState()
+        {
+            while (true)
+            {
+                try
+                {
+                    bool isLocked = IsWorkstationLocked();
+                    
+                    // Detectar cambio de estado
+                    if (isLocked != wasLocked)
+                    {
+                        wasLocked = isLocked;
+                        
+                        if (brightnessIsLow)
+                        {
+                            if (isLocked)
+                            {
+                                // Acaba de bloquear la pantalla
+                                configForm?.LogMessage(configForm.currentTexts[29]); // "Lock screen detected..."
+                                
+                                // Cambiar de brillo a overlay
+                                if (overlay == null)
+                                {
+                                    overlay = new DarkOverlay();
+                                }
+                                overlay.SetOpacitySafe(0.0);
+                                overlay.ShowSafe();
+                                await SmoothTransition(true);
+                            }
+                            else
+                            {
+                                // Acaba de desbloquear la pantalla
+                                configForm?.LogMessage(configForm.currentTexts[30]); // "Session unlocked..."
+                                
+                                // Cambiar de overlay a brillo
+                                await SmoothTransition(false);
+                            }
+                        }
+                    }
+                    
+                    await Task.Delay(500); // Revisar cada medio segundo
+                }
+                catch
+                {
+                    await Task.Delay(1000);
+                }
             }
         }
 
         [STAThread]
         static void Main()
         {
-            // Verificar instancia única
             if (!SingleInstance.IsFirstInstance())
             {
                 MessageBox.Show(
@@ -550,7 +802,6 @@ namespace NoBright
             configForm = new ConfigForm();
 
             trayIcon = new NotifyIcon();
-            // Intentar cargar icono personalizado, si no existe usar el por defecto
             try
             {
                 trayIcon.Icon = new Icon("icon.ico");
@@ -591,12 +842,16 @@ namespace NoBright
             if (CanControlBrightness())
             {
                 trayIcon.ShowBalloonTip(2000, "NoBright", 
-                    "Application started.\nRight click icon to configure.", 
+                    "Application started.\nAuto mode: overlay on lock screen, brightness when unlocked.", 
                     ToolTipIcon.Info);
             }
 
             configForm.Show();
 
+            // Iniciar monitor de estado de bloqueo
+            Task.Run(() => MonitorLockState());
+
+            // Iniciar monitoreo de teclas
             Thread monitorThread = new Thread(MonitorKeyPress);
             monitorThread.IsBackground = true;
             monitorThread.Start();
