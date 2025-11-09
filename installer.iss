@@ -1,3 +1,4 @@
+; ===== CONFIGURACIÓN =====
 [Setup]
 AppName=NoBright
 AppVersion={#Version}
@@ -8,6 +9,10 @@ Compression=lzma
 SolidCompression=yes
 CreateAppDir=yes
 AllowNoIcons=yes
+
+; Detecta idioma del sistema y selecciona uno automáticamente
+LanguageDetectionMethod=uilanguage
+DefaultLanguage=english
 
 ; ===== IDIOMAS =====
 [Languages]
