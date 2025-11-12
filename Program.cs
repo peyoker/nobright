@@ -171,7 +171,7 @@ namespace NoBright
 
             // Versión
             Label lblVersion = new Label();
-            lblVersion.Text = "Version 1.2.0";
+            lblVersion.Text = "Version 1.3.0";
             lblVersion.Location = new Point(0, yPos);
             lblVersion.Size = new Size(450, 20);
             lblVersion.TextAlign = ContentAlignment.MiddleCenter;
@@ -240,6 +240,7 @@ namespace NoBright
         private ComboBox cmbKey;
         private NumericUpDown nudSeconds;
         private CheckBox chkStartup;
+        private CheckBox chkDoubleTap;
         private Button btnSave;
         private Button btnTest;
         private Label lblKey;
@@ -252,7 +253,7 @@ namespace NoBright
         private MenuStrip menuStrip;
         private Icon appIcon;
 
-        private const string VERSION = "1.2.0";
+        private const string VERSION = "1.3.0";
         private bool logExpanded = false;
 
         private string[] texts_en = new string[] {
@@ -261,6 +262,7 @@ namespace NoBright
             "Hold duration (0 = instant):",
             "Manual brightness control:",
             "Start with Windows",
+            "Enable double-tap (press key twice quickly)",
             "Test Toggle",
             "Save",
             "✓ Saved",
@@ -304,6 +306,7 @@ namespace NoBright
             "Duración de pulsación (0 = instantáneo):",
             "Control manual de brillo:",
             "Iniciar con Windows",
+            "Habilitar doble pulsación (pulsar tecla dos veces rápido)",
             "Probar Toggle",
             "Guardar",
             "✓ Guardado",
@@ -497,6 +500,13 @@ namespace NoBright
             this.Controls.Add(menuStrip);
         }
 
+        private void ChkDoubleTap_CheckedChanged(object sender, EventArgs e)
+        {
+            // Cuando se activa doble pulsación, ocultar/mostrar el campo de duración
+            nudSeconds.Enabled = !chkDoubleTap.Checked;
+            lblSeconds.Enabled = !chkDoubleTap.Checked;
+        }
+
         private void ChangeLanguage(int langIndex)
         {
             if (Properties.Settings.Default.Language != langIndex)
@@ -595,7 +605,16 @@ namespace NoBright
             trackBrightness.ValueChanged += TrackBrightness_ValueChanged;
             this.Controls.Add(trackBrightness);
 
-            yPos += 75;
+            yPos += 60;
+
+            chkDoubleTap = new CheckBox();
+            chkDoubleTap.Text = currentTexts[5];
+            chkDoubleTap.Location = new Point(20, yPos);
+            chkDoubleTap.Size = new Size(400, 20);
+            chkDoubleTap.CheckedChanged += ChkDoubleTap_CheckedChanged;
+            this.Controls.Add(chkDoubleTap);
+
+            yPos += 30;
 
             chkStartup = new CheckBox();
             chkStartup.Text = currentTexts[4];
@@ -606,14 +625,14 @@ namespace NoBright
             yPos += 35;
 
             btnTest = new Button();
-            btnTest.Text = currentTexts[5];
+            btnTest.Text = currentTexts[6];
             btnTest.Location = new Point(20, yPos);
             btnTest.Size = new Size(125, 30);
             btnTest.Click += BtnTest_Click;
             this.Controls.Add(btnTest);
 
             btnSave = new Button();
-            btnSave.Text = currentTexts[6];
+            btnSave.Text = currentTexts[7];
             btnSave.Location = new Point(160, yPos);
             btnSave.Size = new Size(125, 30);
             btnSave.Click += BtnSave_Click;
@@ -757,6 +776,11 @@ namespace NoBright
             cmbKey.SelectedIndex = Math.Max(0, Math.Min(Properties.Settings.Default.KeyIndex, cmbKey.Items.Count - 1));
             nudSeconds.Value = (decimal)Properties.Settings.Default.HoldSeconds;
             chkStartup.Checked = IsInStartup();
+            chkDoubleTap.Checked = Properties.Settings.Default.DoubleTapEnabled;
+            
+            // Actualizar estado de controles
+            nudSeconds.Enabled = !chkDoubleTap.Checked;
+            lblSeconds.Enabled = !chkDoubleTap.Checked;
         }
 
         private void BtnTest_Click(object sender, EventArgs e)
@@ -777,12 +801,13 @@ namespace NoBright
         {
             Properties.Settings.Default.KeyIndex = cmbKey.SelectedIndex;
             Properties.Settings.Default.HoldSeconds = (double)nudSeconds.Value;
+            Properties.Settings.Default.DoubleTapEnabled = chkDoubleTap.Checked;
             Properties.Settings.Default.Save();
 
             SetStartup(chkStartup.Checked);
 
             lblStatus.Text = currentTexts[7];
-            LogMessage($"{currentTexts[25]} {cmbKey.Text}, {nudSeconds.Value}s");
+            LogMessage($"{currentTexts[25]} {cmbKey.Text}, {nudSeconds.Value}s, DoubleTap: {chkDoubleTap.Checked}");
             
             System.Windows.Forms.Timer timer = new System.Windows.Forms.Timer();
             timer.Interval = 2000;
