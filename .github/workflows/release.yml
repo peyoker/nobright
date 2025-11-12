@@ -1,58 +1,21 @@
-name: 'Create and Publish Release'
-
-on:
-  push:
-    tags:
-      - '*'
-
-permissions:
-  contents: write
-
-jobs:
-  build-and-release:
-    runs-on: windows-latest
-
-    steps:
-      # 1) Checkout
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      # 2) .NET
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '9.0.x'
-
-      # 3) Restore
-      - name: Restore dependencies
-        run: dotnet restore
-
-      # 4) Publish (NoBright.exe dentro de /publish)
-      - name: Build and Publish Application
-        run: dotnet publish --configuration Release --runtime win-x64 --self-contained true /p:PublishSingleFile=true --output ./publish
-
-      # 5) Install Inno Setup
-      - name: Install Inno Setup
-        run: choco install innosetup -y
-
-      # 6) Build installer
       - name: Build Installer
         run: |
+          # inject version into installer file
           (Get-Content installer.iss) -replace '{#Version}', '${{ github.ref_name }}' | Set-Content installer-build.iss
+
+          # compile with Inno Setup
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "installer-build.iss"
-          Move-Item "Output\NoBright-installer.exe" .
-        shell: pwsh
+          $outPath = Join-Path $PWD "Output\NoBright-installer.exe"
 
-      # 7) ZIP portable
-      - name: Package Release
-        run: Compress-Archive -Path ./publish/* -DestinationPath NoBright-${{ github.ref_name }}.zip
-        shell: pwsh
+          if (-not (Test-Path $outPath)) {
+            Write-Host "ERROR: installer not found at $outPath"
+            Write-Host "=== Output folder listing ==="
+            if (Test-Path "Output") { Get-ChildItem -Path "Output" -Recurse | ForEach-Object { Write-Host $_.FullName } } else { Write-Host "Output folder does not exist." }
+            Write-Host "=== Current directory listing (publish) ==="
+            Get-ChildItem -Path "./publish" -Recurse | ForEach-Object { Write-Host $_.FullName }
+            exit 1
+          }
 
-      # 8) Upload release files
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            NoBright-${{ github.ref_name }}.zip
-            NoBright-installer.exe
-          generate_release_notes: true
+          # move the generated installer to repo root
+          Move-Item $outPath -Destination (Join-Path $PWD "NoBright-installer.exe")
+        shell: pwsh
