@@ -240,6 +240,7 @@ namespace NoBright
         private ComboBox cmbKey;
         private NumericUpDown nudSeconds;
         private CheckBox chkStartup;
+        private CheckBox chkDoubleTap;
         private Button btnSave;
         private Button btnTest;
         private Label lblKey;
@@ -1235,5 +1236,3 @@ namespace NoBright.Properties
         }
     }
 }
-}
-
