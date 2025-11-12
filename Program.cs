@@ -171,7 +171,7 @@ namespace NoBright
 
             // Versión
             Label lblVersion = new Label();
-            lblVersion.Text = "Version 1.2.0";
+            lblVersion.Text = "Version 1.3.0";
             lblVersion.Location = new Point(0, yPos);
             lblVersion.Size = new Size(450, 20);
             lblVersion.TextAlign = ContentAlignment.MiddleCenter;
@@ -240,6 +240,7 @@ namespace NoBright
         private ComboBox cmbKey;
         private NumericUpDown nudSeconds;
         private CheckBox chkStartup;
+        private CheckBox chkDoubleTap;
         private Button btnSave;
         private Button btnTest;
         private Label lblKey;
@@ -252,7 +253,7 @@ namespace NoBright
         private MenuStrip menuStrip;
         private Icon appIcon;
 
-        private const string VERSION = "1.2.0";
+        private const string VERSION = "1.3.0";
         private bool logExpanded = false;
 
         private string[] texts_en = new string[] {
@@ -261,6 +262,7 @@ namespace NoBright
             "Hold duration (0 = instant):",
             "Manual brightness control:",
             "Start with Windows",
+            "Enable double-tap (press key twice quickly)",
             "Test Toggle",
             "Save",
             "✓ Saved",
@@ -304,6 +306,7 @@ namespace NoBright
             "Duración de pulsación (0 = instantáneo):",
             "Control manual de brillo:",
             "Iniciar con Windows",
+            "Habilitar doble pulsación (pulsar tecla dos veces rápido)",
             "Probar Toggle",
             "Guardar",
             "✓ Guardado",
@@ -497,6 +500,13 @@ namespace NoBright
             this.Controls.Add(menuStrip);
         }
 
+        private void ChkDoubleTap_CheckedChanged(object sender, EventArgs e)
+        {
+            // Cuando se activa doble pulsación, ocultar/mostrar el campo de duración
+            nudSeconds.Enabled = !chkDoubleTap.Checked;
+            lblSeconds.Enabled = !chkDoubleTap.Checked;
+        }
+
         private void ChangeLanguage(int langIndex)
         {
             if (Properties.Settings.Default.Language != langIndex)
@@ -595,7 +605,16 @@ namespace NoBright
             trackBrightness.ValueChanged += TrackBrightness_ValueChanged;
             this.Controls.Add(trackBrightness);
 
-            yPos += 75;
+            yPos += 60;
+
+            chkDoubleTap = new CheckBox();
+            chkDoubleTap.Text = currentTexts[5];
+            chkDoubleTap.Location = new Point(20, yPos);
+            chkDoubleTap.Size = new Size(400, 20);
+            chkDoubleTap.CheckedChanged += ChkDoubleTap_CheckedChanged;
+            this.Controls.Add(chkDoubleTap);
+
+            yPos += 30;
 
             chkStartup = new CheckBox();
             chkStartup.Text = currentTexts[4];
@@ -606,14 +625,14 @@ namespace NoBright
             yPos += 35;
 
             btnTest = new Button();
-            btnTest.Text = currentTexts[5];
+            btnTest.Text = currentTexts[6];
             btnTest.Location = new Point(20, yPos);
             btnTest.Size = new Size(125, 30);
             btnTest.Click += BtnTest_Click;
             this.Controls.Add(btnTest);
 
             btnSave = new Button();
-            btnSave.Text = currentTexts[6];
+            btnSave.Text = currentTexts[7];
             btnSave.Location = new Point(160, yPos);
             btnSave.Size = new Size(125, 30);
             btnSave.Click += BtnSave_Click;
@@ -757,6 +776,11 @@ namespace NoBright
             cmbKey.SelectedIndex = Math.Max(0, Math.Min(Properties.Settings.Default.KeyIndex, cmbKey.Items.Count - 1));
             nudSeconds.Value = (decimal)Properties.Settings.Default.HoldSeconds;
             chkStartup.Checked = IsInStartup();
+            chkDoubleTap.Checked = Properties.Settings.Default.DoubleTapEnabled;
+            
+            // Actualizar estado de controles
+            nudSeconds.Enabled = !chkDoubleTap.Checked;
+            lblSeconds.Enabled = !chkDoubleTap.Checked;
         }
 
         private void BtnTest_Click(object sender, EventArgs e)
@@ -777,12 +801,13 @@ namespace NoBright
         {
             Properties.Settings.Default.KeyIndex = cmbKey.SelectedIndex;
             Properties.Settings.Default.HoldSeconds = (double)nudSeconds.Value;
+            Properties.Settings.Default.DoubleTapEnabled = chkDoubleTap.Checked;
             Properties.Settings.Default.Save();
 
             SetStartup(chkStartup.Checked);
 
             lblStatus.Text = currentTexts[7];
-            LogMessage($"{currentTexts[25]} {cmbKey.Text}, {nudSeconds.Value}s");
+            LogMessage($"{currentTexts[25]} {cmbKey.Text}, {nudSeconds.Value}s, DoubleTap: {chkDoubleTap.Checked}");
             
             System.Windows.Forms.Timer timer = new System.Windows.Forms.Timer();
             timer.Interval = 2000;
@@ -899,6 +924,11 @@ namespace NoBright
         static bool wasPressed = false;
         static DarkOverlay overlay = null;
         static bool checkingKey = true;
+        
+        // Para doble pulsación
+        static DateTime lastTapTime = DateTime.MinValue;
+        static int tapCount = 0;
+        static bool doubleTapTriggered = false;
 
         static int[] keyCodes = { 0xA2, 0xA3, 0xA4, 0xA5, 0xA0, 0xA1, 0x1B, 0x26, 0x28, 0x25, 0x27, 0x5B, 0x5C, 0x13, 0x91, 0x2C, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7A, 0x7B };
 
@@ -922,8 +952,8 @@ namespace NoBright
         {
             Thread.CurrentThread.Priority = ThreadPriority.Highest;
             
-            // Aumentar la frecuencia de polling a 10ms para mejor detección
             const int POLL_INTERVAL = 10;
+            const double DOUBLE_TAP_WINDOW = 500; // milisegundos
             
             while (checkingKey)
             {
@@ -931,40 +961,90 @@ namespace NoBright
                 {
                     int selectedKey = keyCodes[Math.Max(0, Math.Min(Properties.Settings.Default.KeyIndex, keyCodes.Length - 1))];
                     double holdSeconds = Properties.Settings.Default.HoldSeconds;
+                    bool doubleTapEnabled = Properties.Settings.Default.DoubleTapEnabled;
                     
                     bool keyPressed = IsKeyPressed(selectedKey);
 
-                    if (keyPressed && !wasPressed)
+                    if (doubleTapEnabled)
                     {
-                        wasPressed = true;
-                        keyPressStart = DateTime.Now;
-                        
-                        configForm?.LogMessage($"Key detected: {selectedKey:X}");
-                        
-                        if (holdSeconds == 0)
+                        // Modo doble pulsación
+                        if (keyPressed && !wasPressed)
                         {
-                            ToggleBrightness();
+                            wasPressed = true;
+                            DateTime now = DateTime.Now;
+                            
+                            // Verificar si es una segunda pulsación dentro del tiempo permitido
+                            if ((now - lastTapTime).TotalMilliseconds < DOUBLE_TAP_WINDOW)
+                            {
+                                tapCount++;
+                                configForm?.LogMessage($"Double tap detected! ({tapCount}/2)");
+                                
+                                if (tapCount >= 2 && !doubleTapTriggered)
+                                {
+                                    ToggleBrightness();
+                                    doubleTapTriggered = true;
+                                    tapCount = 0;
+                                }
+                            }
+                            else
+                            {
+                                // Primera pulsación o timeout
+                                tapCount = 1;
+                                doubleTapTriggered = false;
+                                configForm?.LogMessage("First tap detected");
+                            }
+                            
+                            lastTapTime = now;
+                        }
+                        else if (!keyPressed && wasPressed)
+                        {
+                            wasPressed = false;
+                        }
+                        
+                        // Reset si pasa mucho tiempo
+                        if ((DateTime.Now - lastTapTime).TotalMilliseconds > DOUBLE_TAP_WINDOW)
+                        {
+                            if (tapCount > 0)
+                            {
+                                tapCount = 0;
+                                doubleTapTriggered = false;
+                            }
                         }
                     }
-                    else if (keyPressed && wasPressed && holdSeconds > 0)
+                    else
                     {
-                        TimeSpan elapsed = DateTime.Now - keyPressStart;
-                        if (elapsed.TotalSeconds >= holdSeconds && keyPressStart != DateTime.MaxValue)
+                        // Modo normal con hold duration
+                        if (keyPressed && !wasPressed)
                         {
-                            ToggleBrightness();
-                            keyPressStart = DateTime.MaxValue;
+                            wasPressed = true;
+                            keyPressStart = DateTime.Now;
+                            
+                            if (holdSeconds == 0)
+                            {
+                                ToggleBrightness();
+                            }
                         }
-                    }
-                    else if (!keyPressed && wasPressed)
-                    {
-                        wasPressed = false;
-                        keyPressStart = DateTime.MinValue;
+                        else if (keyPressed && wasPressed && holdSeconds > 0)
+                        {
+                            TimeSpan elapsed = DateTime.Now - keyPressStart;
+                            if (elapsed.TotalSeconds >= holdSeconds && keyPressStart != DateTime.MaxValue)
+                            {
+                                ToggleBrightness();
+                                keyPressStart = DateTime.MaxValue;
+                            }
+                        }
+                        else if (!keyPressed && wasPressed)
+                        {
+                            wasPressed = false;
+                            keyPressStart = DateTime.MinValue;
+                        }
                     }
 
                     Thread.Sleep(POLL_INTERVAL);
                 }
-                catch
+                catch (Exception ex)
                 {
+                    configForm?.LogMessage($"Error: {ex.Message}");
                     Thread.Sleep(100);
                 }
             }
@@ -1235,5 +1315,3 @@ namespace NoBright.Properties
         }
     }
 }
-}
-
